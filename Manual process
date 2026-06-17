@@ -1,0 +1,38 @@
+GDM Cash Bonds — Manual Threshold Calibration Methodology
+
+1. Threshold Key Construction
+
+For each trade, a composite threshold key is constructed from the following attributes:
+
+	•	Product Sub-Type — ABS / CBO / GBO
+	•	Issuer Rating
+	•	Region
+	•	Tenor / Maturity bucket — e.g. ≤2yr, 2–10yr, >10yr
+	•	Credit Rating — Investment / Non-Investment / Default
+	•	Notional Range
+
+This key determines which threshold cell a given trade is checked against.
+
+2. Threshold Types
+
+For each product sub-type, four separate thresholds are maintained — one per reference price source:
+•	BVAL threshold
+	•	RDAM threshold
+	•	Reuters threshold
+	•	EOD threshold
+
+Each source’s threshold is calibrated independently against its own market reference price.
+
+3. Manual Threshold Table Structure
+
+For each product sub-type, a manual threshold table is built with:
+
+	•	Rows: Maturity bucket, sub-divided by Notional Range
+	•	Columns: Credit Rating (Credit Rating-1, Credit Rating-2, …), each further split by Issuer Rating (Issuer Rating-1, Issuer Rating-2, …)
+
+Each cell holds the threshold value for trades matching that combination of maturity, notional, credit rating, and issuer rating.
+4. Market Data Source
+
+Since a dedicated market data feed is not currently available for this process, market reference data embedded within the EPE/trade dataset itself is used in its place. Reference prices are grouped by the composite key (Step 1) and used to derive the threshold values populated into the table (Step 3).
+
+A few 
