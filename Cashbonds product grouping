@@ -119,3 +119,35 @@ cluster_summary = bond_df.groupby('volatility_cluster')[
 
 print("Updated Cluster Profiles:\n")
 print(cluster_summary)
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Assuming 'cluster_summary' is the DataFrame generated at the end of the previous script
+# Reset index to make 'volatility_cluster' a column for plotting
+plot_data = cluster_summary.reset_index()
+
+# Set up a grid of plots
+fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+fig.suptitle('Average Bond Characteristics by Cluster', fontsize=16)
+
+# Features to plot
+features = ['trade_count', 'price_volatility', 'avg_spread', 'avg_credit_score', 'avg_issuer_score']
+
+# Plot each feature
+for i, feature in enumerate(features):
+    row = i // 3
+    col = i % 3
+    sns.barplot(data=plot_data, x='volatility_cluster', y=feature, ax=axes[row, col], palette='viridis')
+    axes[row, col].set_title(f'Average {feature}')
+
+# Clean up empty subplots
+if len(features) < 6:
+    fig.delaxes(axes[1, 2])
+
+plt.tight_layout()
+# plt.savefig('cluster_bar_charts.png') # Use this to save the file
+plt.show()
+
+
+
+
