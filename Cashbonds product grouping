@@ -3,22 +3,22 @@ import numpy as np
 import re
 import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import RobustScaler, MinMaxScaler
 from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+import warnings
+warnings.filterwarnings('ignore')
 
 # ==========================================
-# 1. HELPER FUNCTIONS FOR DYNAMIC PROCESSING
+# PHASE 1: HELPER FUNCTIONS
 # ==========================================
 
 def parse_tenor(tenor_str):
-    """Extracts numeric values from tenor strings (e.g., '2-10yr') and returns the midpoint."""
     t_str = str(tenor_str).lower().replace(' ', '')
     nums = re.findall(r'\d+', t_str)
-    if not nums:
-        return np.nan 
+    if not nums: return np.nan 
     nums = [float(n) for n in nums]
-    if len(nums) == 2:
-        return (nums[0] + nums[1]) / 2
+    if len(nums) == 2: return (nums[0] + nums[1]) / 2
     elif len(nums) == 1:
         if '>' in t_str or '+' in t_str: return nums[0] + 5.0 
         elif '<' in t_str: return nums[0] / 2.0
@@ -26,165 +26,174 @@ def parse_tenor(tenor_str):
     return np.nan
 
 def dynamically_encode_categories(df, cat_column, anchor_metric, ascending_risk=True):
-    """
-    Dynamically maps categorical strings to numerical ranks based on market behavior.
-    """
     clean_series = df[cat_column].astype(str).str.lower().str.replace(' ', '')
     temp_df = df.copy()
     temp_df['clean_cat'] = clean_series
-    
-    # Calculate median behavior per category
     behavior_summary = temp_df.groupby('clean_cat')[anchor_metric].median()
-    
-    # Rank categories (method='dense' creates contiguous integers like 1, 2, 3)
     ranks = behavior_summary.rank(method='dense', ascending=ascending_risk)
-    
-    # Map the ranks back to the original series
     dynamic_mapping_dict = ranks.to_dict()
-    return clean_series.map(dynamic_mapping_dict), dynamic_mapping_dict
+    return clean_series.map(dynamic_mapping_dict)
 
 # ==========================================
-# 2. DATA LOAD & PREPROCESSING
+# PHASE 2: DATA LOAD & PREPROCESSING
 # ==========================================
 
-# Mock data load - replace with your actual file path or database query
-# df = pd.read_csv('cash_bond_trades.csv')
+# NOTE: Replace with your actual data load
+# df = pd.read_csv('epe_daily_alerts.csv')
 
-# Ensure core columns are formatted correctly
+# Parse prices and calculate core metrics
 df['tradedatetime'] = pd.to_datetime(df['tradedatetime'])
 df['low_or_bid_price'] = pd.to_numeric(df['low_or_bid_price'], errors='coerce')
 df['high_or_offer_price'] = pd.to_numeric(df['high_or_offer_price'], errors='coerce')
-df.dropna(subset=['low_or_bid_price', 'high_or_offer_price'], inplace=True)
+df['dealprice'] = pd.to_numeric(df['dealprice'], errors='coerce')
 
-# Feature Derivation
 df['implied_spread'] = df['high_or_offer_price'] - df['low_or_bid_price']
-df['mid_price'] = (df['low_or_bid_price'] + df['high_or_offer_price']) / 2
+df['lseg_mid_price'] = (df['low_or_bid_price'] + df['high_or_offer_price']) / 2
 df['parsed_tenor'] = df['tenor'].apply(parse_tenor)
-df.dropna(subset=['parsed_tenor'], inplace=True)
 
-# Dynamic Encoding of Categorical Fields
-# Anchoring on 'implied_spread' (lower spread = higher liquidity/lower risk score)
-df['credit_score'], _ = dynamically_encode_categories(df, 'creidtrating', 'implied_spread', ascending_risk=False)
-df['issuer_score'], _ = dynamically_encode_categories(df, 'issuerrating', 'implied_spread', ascending_risk=False)
-df['collateral_score'], _ = dynamically_encode_categories(df, 'collateral type', 'implied_spread', ascending_risk=False)
+# Dynamically map categorical risks
+df['credit_score'] = dynamically_encode_categories(df, 'creidtrating', 'implied_spread', ascending_risk=False)
+df['issuer_score'] = dynamically_encode_categories(df, 'issuerrating', 'implied_spread', ascending_risk=False)
+df['collateral_score'] = dynamically_encode_categories(df, 'collateral type', 'implied_spread', ascending_risk=False)
 
-# Notional range is anchored on trade frequency (count) to proxy liquidity
-notional_freq = df.groupby('notional range')['isin'].transform('count')
-df['temp_notional_freq'] = notional_freq
-df['notional_tier'], _ = dynamically_encode_categories(df, 'notional range', 'temp_notional_freq', ascending_risk=True)
+df['notional_freq_proxy'] = df.groupby('notional range')['isin'].transform('count')
+df['notional_tier'] = dynamically_encode_categories(df, 'notional range', 'notional_freq_proxy', ascending_risk=True)
 
-# Drop any rows where dynamic mapping failed
-df.dropna(subset=['credit_score', 'issuer_score', 'collateral_score', 'notional_tier'], inplace=True)
+# Clean missing core features required for clustering
+df_ml = df.dropna(subset=['implied_spread', 'parsed_tenor', 'credit_score']).copy()
 
 # ==========================================
-# 3. AGGREGATION TO ISIN LEVEL
+# PHASE 3: ISIN AGGREGATION & SCALING
 # ==========================================
 
-bond_df = df.groupby('isin').agg(
+bond_df = df_ml.groupby('isin').agg(
     trade_count=('tradedatetime', 'count'),
     avg_spread=('implied_spread', 'mean'),       
-    price_volatility=('mid_price', 'std'),       
+    price_volatility=('lseg_mid_price', 'std'),       
     avg_tenor=('parsed_tenor', 'mean'),          
     avg_credit_score=('credit_score', 'mean'), 
-    avg_issuer_score=('issuer_score', 'mean'),
-    avg_collateral_score=('collateral_score', 'mean'),
-    avg_notional=('notional_tier', 'mean')
+    avg_collateral_score=('collateral_score', 'mean')
 ).reset_index()
 
-# Handle bonds that only traded once (volatility = 0)
 bond_df['price_volatility'] = bond_df['price_volatility'].fillna(0)
 
-# One-Hot Encode Product Subtype
-subtype_df = df.groupby('isin')['peoductsubttype'].agg(lambda x: pd.Series.mode(x)[0]).reset_index()
-subtype_dummies = pd.get_dummies(subtype_df['peoductsubttype'], prefix='type')
-bond_df = pd.merge(bond_df, pd.concat([subtype_df['isin'], subtype_dummies], axis=1), on='isin')
-
-# ==========================================
-# 4. SCALING & MACHINE LEARNING (K-MEANS)
-# ==========================================
-
-# Isolate numeric features for the algorithm
-feature_cols = [col for col in bond_df.columns if col not in ['isin']]
+# Use RobustScaler to ignore fat-finger outliers
+feature_cols = ['trade_count', 'avg_spread', 'price_volatility', 'avg_tenor', 'avg_credit_score', 'avg_collateral_score']
 X = bond_df[feature_cols].values
-
-# Scale features
-scaler = StandardScaler()
+scaler = RobustScaler()
 X_scaled = scaler.fit_transform(X)
 
-# Run KMeans clustering (k=3 for standard Tier 1/2/3 risk profiling)
-optimal_k = 3
-kmeans = KMeans(n_clusters=optimal_k, random_state=42, n_init=10)
-bond_df['volatility_cluster'] = kmeans.fit_predict(X_scaled)
-
 # ==========================================
-# 5. DYNAMIC BUSINESS LABELING
+# PHASE 4: DYNAMIC CLUSTERING (SILHOUETTE)
 # ==========================================
 
-# Sort clusters by average price volatility to dynamically assign text labels
-cluster_volatility = bond_df.groupby('volatility_cluster')['price_volatility'].mean().sort_values()
-ordered_clusters = cluster_volatility.index.tolist()
+best_k, best_score = 2, -1
+for k in range(2, 6):
+    kmeans_test = KMeans(n_clusters=k, random_state=42, n_init=10)
+    labels = kmeans_test.fit_predict(X_scaled)
+    score = silhouette_score(X_scaled, labels)
+    if score > best_score:
+        best_score = score
+        best_k = k
 
-dynamic_label_map = {
-    ordered_clusters[0]: 'Highly Liquid / Stable',
-    ordered_clusters[1]: 'Core Corporate / Mid-Market',
-    ordered_clusters[2]: 'Illiquid / Distressed'
-}
+final_kmeans = KMeans(n_clusters=best_k, random_state=42, n_init=10)
+bond_df['volatility_cluster'] = final_kmeans.fit_predict(X_scaled)
 
-bond_df['cluster_label'] = bond_df['volatility_cluster'].map(dynamic_label_map)
+# Dynamic Labeling (Anchored on Trade Count to ensure Liquid bonds are grouped correctly)
+cluster_liquidity = bond_df.groupby('volatility_cluster')['trade_count'].mean().sort_values(ascending=False)
+ordered_clusters = cluster_liquidity.index.tolist()
 
-# Merge labels back to raw trade data for crosstab visualizations
-df_clustered = pd.merge(df, bond_df[['isin', 'cluster_label']], on='isin', how='inner')
+label_map = {}
+limit_map = {}
+for rank, cluster_id in enumerate(ordered_clusters):
+    if rank == 0:
+        label_map[cluster_id] = "Tier 1: Highly Liquid / Stable"
+        limit_map[cluster_id] = 0.01  # 1% Limit
+    elif rank == len(ordered_clusters) - 1:
+        label_map[cluster_id] = f"Tier {best_k}: Illiquid / Distressed"
+        limit_map[cluster_id] = 0.05  # 5% Limit
+    else:
+        label_map[cluster_id] = f"Tier {rank+1}: Core Corporate"
+        limit_map[cluster_id] = 0.03  # 3% Limit
+
+bond_df['ML_Risk_Tier'] = bond_df['volatility_cluster'].map(label_map)
+bond_df['ML_Limit'] = bond_df['volatility_cluster'].map(limit_map)
+
+# Merge back to raw trades
+df = pd.merge(df, bond_df[['isin', 'ML_Risk_Tier', 'ML_Limit']], on='isin', how='left')
 
 # ==========================================
-# 6. VISUALIZATIONS FOR GOVERNANCE
+# PHASE 5: FALLBACK WATERFALL & CHAMPION VS CHALLENGER
+# ==========================================
+
+# 1. Clean the Alert Description column
+df['alert_description'] = df['alert_description'].fillna('').astype(str).str.strip()
+
+# 2. Isolate Missing Market Data (The Fallback Waterfall Trigger)
+missing_data_patterns = 'MISSING MARKET PRICE|LOW BVAL SCORE'
+df['Missing_Data_Flag'] = np.where(df['alert_description'].str.contains(missing_data_patterns, case=False), 1, 0)
+
+# 3. Filter out Operational Noise (Keep only pure pricing tests)
+noise_patterns = 'Out of Scope|Out of scope|Internal Trades|Back to Back|Corporate Action'
+df_test = df[
+    (~df['alert_description'].str.contains(noise_patterns, case=False)) & 
+    (df['Missing_Data_Flag'] == 0) # Exclude missing data from the pure ML check
+].copy()
+
+# 4. Generate Legacy Flag (1 = Flagged by old system)
+target_pricing_patterns = 'Threshold Breach: Intraday Price|Threshold Breach: EOD Price'
+df_test['Legacy_Flag'] = np.where(df_test['alert_description'].str.contains(target_pricing_patterns, case=False), 1, 0)
+
+# 5. Generate ML Flag
+df_test['ML_Upper_Bound'] = df_test['lseg_mid_price'] * (1 + df_test['ML_Limit'])
+df_test['ML_Lower_Bound'] = df_test['lseg_mid_price'] * (1 - df_test['ML_Limit'])
+
+df_test['ML_Flag'] = np.where(
+    (df_test['dealprice'] > df_test['ML_Upper_Bound']) | (df_test['dealprice'] < df_test['ML_Lower_Bound']), 
+    1, 0
+)
+
+# 6. Categorize the Business Impact
+def categorize_impact(row):
+    if pd.isna(row['ML_Limit']): return "Excluded (No ML Data)"
+    if row['Legacy_Flag'] == 1 and row['ML_Flag'] == 0: return "False Positive Saved"
+    if row['Legacy_Flag'] == 0 and row['ML_Flag'] == 1: return "Missed Risk Caught"
+    if row['Legacy_Flag'] == 1 and row['ML_Flag'] == 1: return "True Anomaly (Both Agree)"
+    return "Safe Trade (Both Agree)"
+
+df_test['Impact_Category'] = df_test.apply(categorize_impact, axis=1)
+
+print("\n--- SHADOW RUN: BUSINESS IMPACT SUMMARY ---")
+print(df_test['Impact_Category'].value_counts())
+print("\n--- MISSING DATA EXCEPTION QUEUE ---")
+print(f"Trades routed to proxy/fallback: {df['Missing_Data_Flag'].sum()}")
+
+# Export for the operations team
+# df_test.to_excel('Enriched_EPE_Alerts_Shadow_Run.xlsx', index=False)
+
+# ==========================================
+# PHASE 6: GOVERNANCE VISUALIZATIONS
 # ==========================================
 
 sns.set_theme(style="whitegrid")
 
-# --- Visualization 1: Credit Rating Crosstab Matrix ---
+# Create a clean dataset for plotting
+plot_df = pd.merge(df_ml, bond_df[['isin', 'ML_Risk_Tier']], on='isin', how='inner')
 
-crosstab_credit = pd.crosstab(
-    index=df_clustered['cluster_label'], 
-    columns=df_clustered['creidtrating'], 
-    normalize='index' 
-) * 100
-
+# 1. Collateral Crosstab
+crosstab_collat = pd.crosstab(plot_df['ML_Risk_Tier'], plot_df['collateral type'], normalize='index') * 100
 plt.figure(figsize=(10, 5))
-sns.heatmap(crosstab_credit, annot=True, cmap="Blues", fmt=".1f", linewidths=.5)
-plt.title("Business Clusters vs. Original Credit Ratings (%)", pad=15)
-plt.ylabel("Assigned T0 Risk Profile")
-plt.xlabel("Original Credit Rating")
-plt.tight_layout()
-plt.show()
-
-# --- Visualization 2: Collateral Type Crosstab Matrix ---
-
-crosstab_collateral = pd.crosstab(
-    index=df_clustered['cluster_label'], 
-    columns=df_clustered['collateral type'], 
-    normalize='index' 
-) * 100
-
-plt.figure(figsize=(10, 5))
-sns.heatmap(crosstab_collateral, annot=True, cmap="Greens", fmt=".1f", linewidths=.5)
+sns.heatmap(crosstab_collat, annot=True, cmap="Greens", fmt=".1f", linewidths=.5)
 plt.title("Business Clusters vs. Collateral Types (%)", pad=15)
-plt.ylabel("Assigned T0 Risk Profile")
-plt.xlabel("Underlying Collateral Type")
+plt.ylabel("ML Risk Tier")
 plt.tight_layout()
 plt.show()
 
-# --- Visualization 3: Statistical Feature Heatmap ---
-
-# Group by labels and calculate feature averages
-cluster_metrics = bond_df.groupby('cluster_label')[
+# 2. ML Feature Matrix
+cluster_metrics = bond_df.groupby('ML_Risk_Tier')[
     ['trade_count', 'price_volatility', 'avg_spread', 'avg_tenor']
 ].mean()
 
-# Reorder index for logical reading on the chart
-label_order = ['Highly Liquid / Stable', 'Core Corporate / Mid-Market', 'Illiquid / Distressed']
-cluster_metrics = cluster_metrics.reindex(label_order)
-
-# Scale purely for heatmap color intensity (0 to 1)
 scaler_viz = MinMaxScaler()
 metrics_scaled = pd.DataFrame(
     scaler_viz.fit_transform(cluster_metrics), 
@@ -192,10 +201,9 @@ metrics_scaled = pd.DataFrame(
     index=cluster_metrics.index
 )
 
-plt.figure(figsize=(10, 6))
+plt.figure(figsize=(10, 5))
 sns.heatmap(metrics_scaled, annot=cluster_metrics.round(3), cmap="YlOrRd", fmt="g", linewidths=.5)
 plt.title("Cluster Profile Limits for T0 Thresholds (Averages)", pad=15)
-plt.ylabel("Assigned T0 Risk Profile")
-plt.xlabel("Aggregated Bond Metrics")
+plt.ylabel("ML Risk Tier")
 plt.tight_layout()
 plt.show()
