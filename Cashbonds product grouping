@@ -6,83 +6,72 @@ from sklearn.cluster import KMeans
 # 1. LOAD DATA
 # df = pd.read_csv('your_bond_data.csv')
 
-# 2. ORDINAL MAPS FOR YOUR SPECIFIC BUCKETS
-# Keys are lowercased with spaces removed to handle data inconsistencies
-credit_map = {
-    'investment': 3,
-    'noninvestment': 2, 
-    'default': 1
-}
+# 2. ORDINAL MAPS FOR RATING BUCKETS
+credit_map = {'investment': 3, 'noninvestment': 2, 'default': 1}
+issuer_map = {'tier1': 4, 'tier2': 3, 'tier3': 2, 'default': 1}
 
-issuer_map = {
-    'tier1': 4,
-    'tier2': 3,
-    'tier3': 2,  # Added tier 3 assuming it exists in your dataset
-    'default': 1
-}
-
-# 3. PREPROCESSING & CLEANING
+# 3. PREPROCESSING & DERIVED PRICE FEATURES
 df['tradedatetime'] = pd.to_datetime(df['tradedatetime'])
 
-# Aggressive string cleaning: lowercase, cast to string, and remove all spaces
-# This ensures "tier1", "Tier 1", and "tier 1" all become "tier1"
+# Ensure price columns are numeric
+df['low_or_bid_price'] = pd.to_numeric(df['low_or_bid_price'], errors='coerce')
+df['high_or_offer_price'] = pd.to_numeric(df['high_or_offer_price'], errors='coerce')
+
+# Drop rows with missing price boundaries
+df.dropna(subset=['low_or_bid_price', 'high_or_offer_price'], inplace=True)
+
+# Feature Derivation: Calculate Implied Spread and Mid Price
+df['implied_spread'] = df['high_or_offer_price'] - df['low_or_bid_price']
+df['mid_price'] = (df['low_or_bid_price'] + df['high_or_offer_price']) / 2
+
+# Clean and map categorical rating strings
 df['creidtrating'] = df['creidtrating'].astype(str).str.lower().str.replace(' ', '')
 df['issuerrating'] = df['issuerrating'].astype(str).str.lower().str.replace(' ', '')
-
-# Map the cleaned strings to numerical scores
 df['credit_score'] = df['creidtrating'].map(credit_map)
 df['issuer_score'] = df['issuerrating'].map(issuer_map)
-
-# Drop rows where the rating couldn't be mapped (e.g., missing data or unknown categories)
 df.dropna(subset=['credit_score', 'issuer_score'], inplace=True)
 
-# Map notional ranges to numerical tiers
-notional_map = {'0-1m': 1, '1m-5m': 2, '5m-10m': 3, '>10m': 4} 
-# Clean notional column before mapping as well
+# Clean and map notional ranges
 df['notional range'] = df['notional range'].astype(str).str.lower().str.replace(' ', '')
+notional_map = {'0-1m': 1, '1m-5m': 2, '5m-10m': 3, '>10m': 4} 
 df['notional_tier'] = df['notional range'].map(notional_map)
 df.dropna(subset=['notional_tier'], inplace=True)
 
 # 4. AGGREGATE TO ISIN LEVEL
 bond_df = df.groupby('isin').agg(
     trade_count=('tradedatetime', 'count'),
-    avg_bid_ask=('bid ask', 'mean'),
-    price_volatility=('dealprice', 'std'),
+    avg_spread=('implied_spread', 'mean'),       # Replaces raw bid-ask column
+    price_volatility=('mid_price', 'std'),       # Volatility tracked on clean mid-prices
     avg_tenor=('tenor', 'mean'),
     avg_credit_score=('credit_score', 'mean'), 
     avg_issuer_score=('issuer_score', 'mean'), 
     avg_notional=('notional_tier', 'mean')
 ).reset_index()
 
-# Fill 0 for price_volatility where a bond only traded once
+# Fill 0 for price_volatility where a bond only has one mid-price entry
 bond_df['price_volatility'] = bond_df['price_volatility'].fillna(0)
 
 # 5. ONE-HOT ENCODE PRODUCT SUBTYPE
-# Extract the most common subtype (ABS, GBO, CBO) for each ISIN
 subtype_df = df.groupby('isin')['peoductsubttype'].agg(lambda x: pd.Series.mode(x)[0]).reset_index()
 subtype_dummies = pd.get_dummies(subtype_df['peoductsubttype'], prefix='type')
-
-# Merge features and dummies
 bond_df = pd.merge(bond_df, pd.concat([subtype_df['isin'], subtype_dummies], axis=1), on='isin')
 
 # 6. SCALING & CLUSTERING
-# Select features for clustering (drop ISIN as it's just an identifier)
 feature_cols = [col for col in bond_df.columns if col != 'isin']
 X = bond_df[feature_cols].values
 
-# Scale features to mean=0, variance=1
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
-# Run KMeans clustering (Starting with k=5 clusters)
+# Run KMeans clustering
 optimal_k = 5
 kmeans = KMeans(n_clusters=optimal_k, random_state=42, n_init=10)
 bond_df['volatility_cluster'] = kmeans.fit_predict(X_scaled)
 
 # Print cluster profile summaries to inspect the peer groups
 cluster_summary = bond_df.groupby('volatility_cluster')[
-    ['trade_count', 'price_volatility', 'avg_bid_ask', 'avg_credit_score', 'avg_issuer_score']
+    ['trade_count', 'price_volatility', 'avg_spread', 'avg_credit_score', 'avg_issuer_score']
 ].mean()
 
-print("Cluster Profiles:\n")
+print("Updated Cluster Profiles:\n")
 print(cluster_summary)
