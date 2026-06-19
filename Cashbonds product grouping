@@ -6,35 +6,41 @@ from sklearn.cluster import KMeans
 # 1. LOAD DATA
 # df = pd.read_csv('your_bond_data.csv')
 
-# 2. UNIFIED RATING MAP
-unified_rating_map = {
-    'AAA': 21, 'AAA': 21, 'AA+': 20, 'AA1': 20, 'AA': 19, 'AA2': 19,
-    'AA-': 18, 'AA3': 18, 'A+': 17, 'A1': 17, 'A': 16, 'A2': 16,
-    'A-': 15, 'A3': 15, 'BBB+': 14, 'BAA1': 14, 'BBB': 13, 'BAA2': 13,
-    'BBB-': 12, 'BAA3': 12, 'BB+': 11, 'BA1': 11, 'BB': 10, 'BA2': 10,
-    'BB-': 9,  'BA3': 9, 'B+': 8, 'B1': 8, 'B': 7, 'B2': 7,
-    'B-': 6, 'B3': 6, 'CCC+': 5, 'CAA1': 5, 'CCC': 4, 'CAA2': 4,
-    'CCC-': 3, 'CAA3': 3, 'CC': 2, 'CA': 2, 'C': 1, 'D': 0
+# 2. ORDINAL MAPS FOR YOUR SPECIFIC BUCKETS
+# Keys are lowercased with spaces removed to handle data inconsistencies
+credit_map = {
+    'investment': 3,
+    'noninvestment': 2, 
+    'default': 1
 }
 
-# 3. PREPROCESSING & MAPPING
+issuer_map = {
+    'tier1': 4,
+    'tier2': 3,
+    'tier3': 2,  # Added tier 3 assuming it exists in your dataset
+    'default': 1
+}
+
+# 3. PREPROCESSING & CLEANING
 df['tradedatetime'] = pd.to_datetime(df['tradedatetime'])
 
-# Standardize rating strings (uppercase, strip whitespace) to match dictionary
-df['creidtrating'] = df['creidtrating'].astype(str).str.strip().str.upper()
-df['issuerrating'] = df['issuerrating'].astype(str).str.strip().str.upper()
+# Aggressive string cleaning: lowercase, cast to string, and remove all spaces
+# This ensures "tier1", "Tier 1", and "tier 1" all become "tier1"
+df['creidtrating'] = df['creidtrating'].astype(str).str.lower().str.replace(' ', '')
+df['issuerrating'] = df['issuerrating'].astype(str).str.lower().str.replace(' ', '')
 
-# Map scores
-df['credit_score'] = df['creidtrating'].map(unified_rating_map)
-df['issuer_score'] = df['issuerrating'].map(unified_rating_map)
+# Map the cleaned strings to numerical scores
+df['credit_score'] = df['creidtrating'].map(credit_map)
+df['issuer_score'] = df['issuerrating'].map(issuer_map)
 
-# DROP UNRATED / MISSING BONDS
+# Drop rows where the rating couldn't be mapped (e.g., missing data or unknown categories)
 df.dropna(subset=['credit_score', 'issuer_score'], inplace=True)
 
 # Map notional ranges to numerical tiers
-notional_map = {'0-1M': 1, '1M-5M': 2, '5M-10M': 3, '>10M': 4} 
+notional_map = {'0-1m': 1, '1m-5m': 2, '5m-10m': 3, '>10m': 4} 
+# Clean notional column before mapping as well
+df['notional range'] = df['notional range'].astype(str).str.lower().str.replace(' ', '')
 df['notional_tier'] = df['notional range'].map(notional_map)
-# Drop rows where notional tier couldn't be mapped (optional, based on data quality)
 df.dropna(subset=['notional_tier'], inplace=True)
 
 # 4. AGGREGATE TO ISIN LEVEL
@@ -43,7 +49,8 @@ bond_df = df.groupby('isin').agg(
     avg_bid_ask=('bid ask', 'mean'),
     price_volatility=('dealprice', 'std'),
     avg_tenor=('tenor', 'mean'),
-    avg_credit_score=('credit_score', 'mean'), # Mean works here since ratings shouldn't change intraday
+    avg_credit_score=('credit_score', 'mean'), 
+    avg_issuer_score=('issuer_score', 'mean'), 
     avg_notional=('notional_tier', 'mean')
 ).reset_index()
 
@@ -51,7 +58,7 @@ bond_df = df.groupby('isin').agg(
 bond_df['price_volatility'] = bond_df['price_volatility'].fillna(0)
 
 # 5. ONE-HOT ENCODE PRODUCT SUBTYPE
-# Extract the most common subtype for each ISIN
+# Extract the most common subtype (ABS, GBO, CBO) for each ISIN
 subtype_df = df.groupby('isin')['peoductsubttype'].agg(lambda x: pd.Series.mode(x)[0]).reset_index()
 subtype_dummies = pd.get_dummies(subtype_df['peoductsubttype'], prefix='type')
 
@@ -73,6 +80,9 @@ kmeans = KMeans(n_clusters=optimal_k, random_state=42, n_init=10)
 bond_df['volatility_cluster'] = kmeans.fit_predict(X_scaled)
 
 # Print cluster profile summaries to inspect the peer groups
-cluster_summary = bond_df.groupby('volatility_cluster')[['trade_count', 'price_volatility', 'avg_bid_ask', 'avg_credit_score']].mean()
+cluster_summary = bond_df.groupby('volatility_cluster')[
+    ['trade_count', 'price_volatility', 'avg_bid_ask', 'avg_credit_score', 'avg_issuer_score']
+].mean()
+
 print("Cluster Profiles:\n")
 print(cluster_summary)
