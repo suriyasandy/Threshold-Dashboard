@@ -1,153 +1,201 @@
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler
+import re
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.cluster import KMeans
 
-# 1. LOAD DATA
-# df = pd.read_csv('your_bond_data.csv')
-
-# 2. ORDINAL MAPS FOR RATING BUCKETS
-credit_map = {'investment': 3, 'noninvestment': 2, 'default': 1}
-issuer_map = {'tier1': 4, 'tier2': 3, 'tier3': 2, 'default': 1}
-
-# 3. PREPROCESSING & DERIVED PRICE FEATURES
-df['tradedatetime'] = pd.to_datetime(df['tradedatetime'])
-
-# Ensure price columns are numeric
-df['low_or_bid_price'] = pd.to_numeric(df['low_or_bid_price'], errors='coerce')
-df['high_or_offer_price'] = pd.to_numeric(df['high_or_offer_price'], errors='coerce')
-
-# Drop rows with missing price boundaries
-df.dropna(subset=['low_or_bid_price', 'high_or_offer_price'], inplace=True)
-import re
-import numpy as np
-import pandas as pd
-
-# Assume df is your dataframe
-# df = pd.read_csv('your_bond_data.csv')
+# ==========================================
+# 1. HELPER FUNCTIONS FOR DYNAMIC PROCESSING
+# ==========================================
 
 def parse_tenor(tenor_str):
-    # Cast to string, lowercase, and remove spaces for clean parsing
+    """Extracts numeric values from tenor strings (e.g., '2-10yr') and returns the midpoint."""
     t_str = str(tenor_str).lower().replace(' ', '')
-    
-    # Extract all distinct numbers from the string
     nums = re.findall(r'\d+', t_str)
-    
     if not nums:
         return np.nan 
-        
     nums = [float(n) for n in nums]
-    
-    # Scenario A: It is a range with two numbers (e.g., '2-10yr') -> Calculate Midpoint
     if len(nums) == 2:
         return (nums[0] + nums[1]) / 2
-    
-    # Scenario B: It is a single number constraint
     elif len(nums) == 1:
-        if '>' in t_str or '+' in t_str:
-            # Open-ended long tenor (e.g., '>10yr'). Adding an arbitrary buffer (e.g., +5) 
-            # to mathematically separate it from a strict '10yr' tenor.
-            return nums[0] + 5.0 
-        elif '<' in t_str:
-            # Open-ended short tenor (e.g., '<1yr'). Halving it to represent a fractional year.
-            return nums[0] / 2.0
-        else:
-            # Exact single year (e.g., '5yr')
-            return nums[0]
-            
+        if '>' in t_str or '+' in t_str: return nums[0] + 5.0 
+        elif '<' in t_str: return nums[0] / 2.0
+        else: return nums[0]
     return np.nan
 
-# Apply the dynamic parser to the tenor column
-df['parsed_tenor'] = df['tenor'].apply(parse_tenor)
+def dynamically_encode_categories(df, cat_column, anchor_metric, ascending_risk=True):
+    """
+    Dynamically maps categorical strings to numerical ranks based on market behavior.
+    """
+    clean_series = df[cat_column].astype(str).str.lower().str.replace(' ', '')
+    temp_df = df.copy()
+    temp_df['clean_cat'] = clean_series
+    
+    # Calculate median behavior per category
+    behavior_summary = temp_df.groupby('clean_cat')[anchor_metric].median()
+    
+    # Rank categories (method='dense' creates contiguous integers like 1, 2, 3)
+    ranks = behavior_summary.rank(method='dense', ascending=ascending_risk)
+    
+    # Map the ranks back to the original series
+    dynamic_mapping_dict = ranks.to_dict()
+    return clean_series.map(dynamic_mapping_dict), dynamic_mapping_dict
 
-# Drop any rows where tenor was completely missing or unparseable
-df.dropna(subset=['parsed_tenor'], inplace=True)
+# ==========================================
+# 2. DATA LOAD & PREPROCESSING
+# ==========================================
 
-# Feature Derivation: Calculate Implied Spread and Mid Price
+# Mock data load - replace with your actual file path or database query
+# df = pd.read_csv('cash_bond_trades.csv')
+
+# Ensure core columns are formatted correctly
+df['tradedatetime'] = pd.to_datetime(df['tradedatetime'])
+df['low_or_bid_price'] = pd.to_numeric(df['low_or_bid_price'], errors='coerce')
+df['high_or_offer_price'] = pd.to_numeric(df['high_or_offer_price'], errors='coerce')
+df.dropna(subset=['low_or_bid_price', 'high_or_offer_price'], inplace=True)
+
+# Feature Derivation
 df['implied_spread'] = df['high_or_offer_price'] - df['low_or_bid_price']
 df['mid_price'] = (df['low_or_bid_price'] + df['high_or_offer_price']) / 2
+df['parsed_tenor'] = df['tenor'].apply(parse_tenor)
+df.dropna(subset=['parsed_tenor'], inplace=True)
 
-# Clean and map categorical rating strings
-df['creidtrating'] = df['creidtrating'].astype(str).str.lower().str.replace(' ', '')
-df['issuerrating'] = df['issuerrating'].astype(str).str.lower().str.replace(' ', '')
-df['credit_score'] = df['creidtrating'].map(credit_map)
-df['issuer_score'] = df['issuerrating'].map(issuer_map)
-df.dropna(subset=['credit_score', 'issuer_score'], inplace=True)
+# Dynamic Encoding of Categorical Fields
+# Anchoring on 'implied_spread' (lower spread = higher liquidity/lower risk score)
+df['credit_score'], _ = dynamically_encode_categories(df, 'creidtrating', 'implied_spread', ascending_risk=False)
+df['issuer_score'], _ = dynamically_encode_categories(df, 'issuerrating', 'implied_spread', ascending_risk=False)
+df['collateral_score'], _ = dynamically_encode_categories(df, 'collateral type', 'implied_spread', ascending_risk=False)
 
-# Clean and map notional ranges
-df['notional range'] = df['notional range'].astype(str).str.lower().str.replace(' ', '')
-notional_map = {'0-1m': 1, '1m-5m': 2, '5m-10m': 3, '>10m': 4} 
-df['notional_tier'] = df['notional range'].map(notional_map)
-df.dropna(subset=['notional_tier'], inplace=True)
+# Notional range is anchored on trade frequency (count) to proxy liquidity
+notional_freq = df.groupby('notional range')['isin'].transform('count')
+df['temp_notional_freq'] = notional_freq
+df['notional_tier'], _ = dynamically_encode_categories(df, 'notional range', 'temp_notional_freq', ascending_risk=True)
 
-# 4. AGGREGATE TO ISIN LEVEL
+# Drop any rows where dynamic mapping failed
+df.dropna(subset=['credit_score', 'issuer_score', 'collateral_score', 'notional_tier'], inplace=True)
+
+# ==========================================
+# 3. AGGREGATION TO ISIN LEVEL
+# ==========================================
+
 bond_df = df.groupby('isin').agg(
     trade_count=('tradedatetime', 'count'),
     avg_spread=('implied_spread', 'mean'),       
     price_volatility=('mid_price', 'std'),       
-    avg_tenor=('parsed_tenor', 'mean'),          # Swapped to the dynamically parsed column
+    avg_tenor=('parsed_tenor', 'mean'),          
     avg_credit_score=('credit_score', 'mean'), 
-    avg_issuer_score=('issuer_score', 'mean'), 
+    avg_issuer_score=('issuer_score', 'mean'),
+    avg_collateral_score=('collateral_score', 'mean'),
     avg_notional=('notional_tier', 'mean')
 ).reset_index()
 
-
-# Fill 0 for price_volatility where a bond only has one mid-price entry
+# Handle bonds that only traded once (volatility = 0)
 bond_df['price_volatility'] = bond_df['price_volatility'].fillna(0)
 
-# 5. ONE-HOT ENCODE PRODUCT SUBTYPE
+# One-Hot Encode Product Subtype
 subtype_df = df.groupby('isin')['peoductsubttype'].agg(lambda x: pd.Series.mode(x)[0]).reset_index()
 subtype_dummies = pd.get_dummies(subtype_df['peoductsubttype'], prefix='type')
 bond_df = pd.merge(bond_df, pd.concat([subtype_df['isin'], subtype_dummies], axis=1), on='isin')
 
-# 6. SCALING & CLUSTERING
-feature_cols = [col for col in bond_df.columns if col != 'isin']
+# ==========================================
+# 4. SCALING & MACHINE LEARNING (K-MEANS)
+# ==========================================
+
+# Isolate numeric features for the algorithm
+feature_cols = [col for col in bond_df.columns if col not in ['isin']]
 X = bond_df[feature_cols].values
 
+# Scale features
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
-# Run KMeans clustering
-optimal_k = 5
+# Run KMeans clustering (k=3 for standard Tier 1/2/3 risk profiling)
+optimal_k = 3
 kmeans = KMeans(n_clusters=optimal_k, random_state=42, n_init=10)
 bond_df['volatility_cluster'] = kmeans.fit_predict(X_scaled)
 
-# Print cluster profile summaries to inspect the peer groups
-cluster_summary = bond_df.groupby('volatility_cluster')[
-    ['trade_count', 'price_volatility', 'avg_spread', 'avg_credit_score', 'avg_issuer_score']
-].mean()
+# ==========================================
+# 5. DYNAMIC BUSINESS LABELING
+# ==========================================
 
-print("Updated Cluster Profiles:\n")
-print(cluster_summary)
-import matplotlib.pyplot as plt
-import seaborn as sns
+# Sort clusters by average price volatility to dynamically assign text labels
+cluster_volatility = bond_df.groupby('volatility_cluster')['price_volatility'].mean().sort_values()
+ordered_clusters = cluster_volatility.index.tolist()
 
-# Assuming 'cluster_summary' is the DataFrame generated at the end of the previous script
-# Reset index to make 'volatility_cluster' a column for plotting
-plot_data = cluster_summary.reset_index()
+dynamic_label_map = {
+    ordered_clusters[0]: 'Highly Liquid / Stable',
+    ordered_clusters[1]: 'Core Corporate / Mid-Market',
+    ordered_clusters[2]: 'Illiquid / Distressed'
+}
 
-# Set up a grid of plots
-fig, axes = plt.subplots(2, 3, figsize=(15, 10))
-fig.suptitle('Average Bond Characteristics by Cluster', fontsize=16)
+bond_df['cluster_label'] = bond_df['volatility_cluster'].map(dynamic_label_map)
 
-# Features to plot
-features = ['trade_count', 'price_volatility', 'avg_spread', 'avg_credit_score', 'avg_issuer_score']
+# Merge labels back to raw trade data for crosstab visualizations
+df_clustered = pd.merge(df, bond_df[['isin', 'cluster_label']], on='isin', how='inner')
 
-# Plot each feature
-for i, feature in enumerate(features):
-    row = i // 3
-    col = i % 3
-    sns.barplot(data=plot_data, x='volatility_cluster', y=feature, ax=axes[row, col], palette='viridis')
-    axes[row, col].set_title(f'Average {feature}')
+# ==========================================
+# 6. VISUALIZATIONS FOR GOVERNANCE
+# ==========================================
 
-# Clean up empty subplots
-if len(features) < 6:
-    fig.delaxes(axes[1, 2])
+sns.set_theme(style="whitegrid")
 
+# --- Visualization 1: Credit Rating Crosstab Matrix ---
+
+crosstab_credit = pd.crosstab(
+    index=df_clustered['cluster_label'], 
+    columns=df_clustered['creidtrating'], 
+    normalize='index' 
+) * 100
+
+plt.figure(figsize=(10, 5))
+sns.heatmap(crosstab_credit, annot=True, cmap="Blues", fmt=".1f", linewidths=.5)
+plt.title("Business Clusters vs. Original Credit Ratings (%)", pad=15)
+plt.ylabel("Assigned T0 Risk Profile")
+plt.xlabel("Original Credit Rating")
 plt.tight_layout()
-# plt.savefig('cluster_bar_charts.png') # Use this to save the file
 plt.show()
 
+# --- Visualization 2: Collateral Type Crosstab Matrix ---
 
+crosstab_collateral = pd.crosstab(
+    index=df_clustered['cluster_label'], 
+    columns=df_clustered['collateral type'], 
+    normalize='index' 
+) * 100
 
+plt.figure(figsize=(10, 5))
+sns.heatmap(crosstab_collateral, annot=True, cmap="Greens", fmt=".1f", linewidths=.5)
+plt.title("Business Clusters vs. Collateral Types (%)", pad=15)
+plt.ylabel("Assigned T0 Risk Profile")
+plt.xlabel("Underlying Collateral Type")
+plt.tight_layout()
+plt.show()
 
+# --- Visualization 3: Statistical Feature Heatmap ---
+
+# Group by labels and calculate feature averages
+cluster_metrics = bond_df.groupby('cluster_label')[
+    ['trade_count', 'price_volatility', 'avg_spread', 'avg_tenor']
+].mean()
+
+# Reorder index for logical reading on the chart
+label_order = ['Highly Liquid / Stable', 'Core Corporate / Mid-Market', 'Illiquid / Distressed']
+cluster_metrics = cluster_metrics.reindex(label_order)
+
+# Scale purely for heatmap color intensity (0 to 1)
+scaler_viz = MinMaxScaler()
+metrics_scaled = pd.DataFrame(
+    scaler_viz.fit_transform(cluster_metrics), 
+    columns=cluster_metrics.columns, 
+    index=cluster_metrics.index
+)
+
+plt.figure(figsize=(10, 6))
+sns.heatmap(metrics_scaled, annot=cluster_metrics.round(3), cmap="YlOrRd", fmt="g", linewidths=.5)
+plt.title("Cluster Profile Limits for T0 Thresholds (Averages)", pad=15)
+plt.ylabel("Assigned T0 Risk Profile")
+plt.xlabel("Aggregated Bond Metrics")
+plt.tight_layout()
+plt.show()
