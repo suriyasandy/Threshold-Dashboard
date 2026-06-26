@@ -1,168 +1,21 @@
-import pandas as pd
-import numpy as np
-from sklearn.preprocessing import RobustScaler
-from sklearn.cluster import KMeans
-import warnings
-warnings.filterwarnings('ignore')
+Here’s a summary of the latest code changes, most recent first.
 
-# =====================================================================
-# 1. LOAD AND PREPARE REAL MARKET DATA
-# =====================================================================
-print("Loading real trade data...")
+Reuters (LSEG) as primary source — GDM Cash Bonds
 
-# UPDATE THIS LINE with your actual file path (e.g., 'historical_trades.xlsx' or 'daily_dump.csv')
-file_path = 'your_actual_trade_data.csv' 
+	•	Added a source_mode selector to the Cash Bonds calibrator config, defaulting to “Reuters (LSEG) only” (the only feasible feed now), with an “All available sources” option for later.
+	•	Reworked _sources() to honour that mode and pass params through all three callers (calibrate, backtest, candidate_flags), so Reuters-only output is a clean single-column subset of the full four-source design.
 
-try:
-    if file_path.endswith('.csv'):
-        df = pd.read_csv(file_path)
-    else:
-        df = pd.read_excel(file_path)
-except FileNotFoundError:
-    print(f"Error: Could not find '{file_path}'. Please ensure the file is in the correct directory.")
-    exit()
+Business benefit / false-positive identification
 
-# Standardize column names to lowercase to prevent capitalization errors
-df.columns = [col.strip().lower() for col in df.columns]
+	•	Reframed ground truth to your real semantics in column_map.py: GENUINE_STATUSES (L2-confirmed = true positive) and L1_FP_STATUSES (L1-closed = false positive).
+	•	Added EPE resolution fields (resolution_level, outcome) to the mock, and coupled the mock so genuine exceptions point at genuinely off-market trades — and fixed the trade IDs to a per-date scheme so BRV↔EPE actually join.
+	•	Added a candidate_flags() method to all three calibrators (GFX, Cash Bonds, default) plus candidate_flags_checks() in the service.
+	•	Added _labels() and _business_benefit() in the threshold router, and a minutes_per_l1 input; the backtest now returns FP-eliminated, TP-retained, ops-hours-saved, and join match-rate.
+	•	Added a Business Benefit panel to the Backtesting tab UI, including the join-health warning that explains the near-zero precision you’d seen.
 
-# Ensure we map the correct column names based on your environment
-# Adjust the strings on the right if your exact column headers differ slightly
-col_map = {
-    'peoductsubttype': 'product_subtype',  # Handling the typo from earlier
-    'vault error decsriotion': 'alert_description',
-    'creidtrating': 'credit_rating',
-    'issuerrating': 'issuer_rating'
-}
-df.rename(columns={k: v for k, v in col_map.items() if k in df.columns}, inplace=True)
+GDM Cash Bonds calibrator (the bigger rebuild)
 
-# Clean and convert core numeric fields
-core_numerics = ['low_or_bid_price', 'high_or_offer_price', 'dealprice']
-for col in core_numerics:
-    if col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-
-# Drop rows where we physically cannot calculate an off-market boundary
-df.dropna(subset=['low_or_bid_price', 'high_or_offer_price', 'dealprice', 'isin'], inplace=True)
-
-# Calculate live metrics
-df['implied_spread'] = df['high_or_offer_price'] - df['low_or_bid_price']
-df['lseg_mid_price'] = (df['low_or_bid_price'] + df['high_or_offer_price']) / 2
-
-# =====================================================================
-# 2. THE CHALLENGER APPROACH: DYNAMIC ML CLUSTERING
-# =====================================================================
-print("Extracting live trading features and running ML clustering...")
-
-# Group by ISIN to capture market behavioral reality
-bond_profiles = df.groupby('isin').agg(
-    trade_count=('dealprice', 'count'),
-    avg_spread=('implied_spread', 'mean'),
-    price_volatility=('lseg_mid_price', 'std') # Volatility of the market baseline
-).reset_index().fillna(0)
-
-# Robust scaling to handle extreme trading outliers (fat fingers) safely
-feature_cols = ['trade_count', 'avg_spread', 'price_volatility']
-X = bond_profiles[feature_cols].values
-scaler = RobustScaler()
-X_scaled = scaler.fit_transform(X)
-
-# Apply K-Means (Testing with k=3 for Liquid, Core, Illiquid)
-kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
-bond_profiles['cluster'] = kmeans.fit_predict(X_scaled)
-
-# Map clusters dynamically based on trade volume/liquidity
-cluster_liquidity = bond_profiles.groupby('cluster')['trade_count'].mean().sort_values(ascending=False)
-ordered_clusters = cluster_liquidity.index.tolist()
-
-# Define the dynamic thresholds
-limit_mapping = {
-    ordered_clusters[0]: 0.0075,  # 0.75% for Highly Liquid
-    ordered_clusters[1]: 0.02,    # 2.0% for Core Mid-Market
-    ordered_clusters[2]: 0.05     # 5.0% for Illiquid / Structured
-}
-tier_mapping = {
-    ordered_clusters[0]: 'Tier 1 (Highly Liquid)', 
-    ordered_clusters[1]: 'Tier 2 (Core)', 
-    ordered_clusters[2]: 'Tier 3 (Illiquid/Structured)'
-}
-
-bond_profiles['ML_Limit'] = bond_profiles['cluster'].map(limit_mapping)
-bond_profiles['ML_Risk_Tier'] = bond_profiles['cluster'].map(tier_mapping)
-
-# Merge ML boundaries back to the raw trade file
-df = pd.merge(df, bond_profiles[['isin', 'ML_Limit', 'ML_Risk_Tier']], on='isin', how='left')
-
-# =====================================================================
-# 3. CHAMPION VS. CHALLENGER IMPACT MATRIX
-# =====================================================================
-print("Running Champion vs. Challenger comparison...")
-
-if 'alert_description' not in df.columns:
-    df['alert_description'] = ''
-
-df['alert_description'] = df['alert_description'].fillna('').astype(str).str.strip()
-
-# Step A: Identify and isolate Missing Vendor Data Exceptions
-missing_patterns = 'MISSING MARKET PRICE|LOW BVAL SCORE'
-df['Missing_Data_Flag'] = np.where(df['alert_description'].str.contains(missing_patterns, case=False), 1, 0)
-
-# Step B: Filter out Operational Noise (Wash trades, Corporate Actions)
-noise_patterns = 'Out of Scope|Internal Trades|Back to Back|Corporate Action'
-df_clean_test = df[
-    (~df['alert_description'].str.contains(noise_patterns, case=False)) & 
-    (df['Missing_Data_Flag'] == 0)
-].copy()
-
-# Step C: Isolate True Legacy Pricing Breaches
-pricing_patterns = 'Threshold Breach'
-df_clean_test['Legacy_Flag'] = np.where(df_clean_test['alert_description'].str.contains(pricing_patterns, case=False), 1, 0)
-
-# Step D: Apply ML Threshold Flags against the Deal Price
-df_clean_test['ML_Upper_Bound'] = df_clean_test['lseg_mid_price'] * (1 + df_clean_test['ML_Limit'])
-df_clean_test['ML_Lower_Bound'] = df_clean_test['lseg_mid_price'] * (1 - df_clean_test['ML_Limit'])
-df_clean_test['ML_Flag'] = np.where(
-    (df_clean_test['dealprice'] > df_clean_test['ML_Upper_Bound']) | 
-    (df_clean_test['dealprice'] < df_clean_test['ML_Lower_Bound']), 
-    1, 0
-)
-
-# Step E: Classify outcomes for the business scorecard
-def evaluate_outcome(row):
-    if row['Legacy_Flag'] == 1 and row['ML_Flag'] == 0:
-        return "False Positive Saved (Operational Noise Removed)"
-    elif row['Legacy_Flag'] == 0 and row['ML_Flag'] == 1:
-        return "Missed Risk Caught (Blind Spot Shielded)"
-    elif row['Legacy_Flag'] == 1 and row['ML_Flag'] == 1:
-        return "True Anomaly (Both Systems Agree)"
-    else:
-        return "Safe Trade (Both Systems Agree)"
-
-df_clean_test['Impact_Category'] = df_clean_test.apply(evaluate_outcome, axis=1)
-
-# =====================================================================
-# 4. EXPORT AND PRINT SCORECARDS
-# =====================================================================
-print("\n" + "="*70)
-print("             PRODUCT CONTROL EVIDENCE SCORESHEET          ")
-print("="*70)
-
-print("\n[1] METRIC MATRIX SUMMARY (SHADOW RUN):")
-summary = df_clean_test['Impact_Category'].value_counts()
-for category, count in summary.items():
-    print(f" -> {category:<50}: {count} trades")
-
-print("\n[2] VENDOR DATA EXCLUSION QUEUE:")
-print(f" -> Routed to Fallback Waterfall due to Missing Price/Low BVAL: {df['Missing_Data_Flag'].sum()} trades")
-
-if 'product_subtype' in df_clean_test.columns:
-    print("\n[3] PERFORMANCE DRILLDOWN BY ASSET CLASS PROFILE:")
-    drilldown = pd.crosstab(df_clean_test['product_subtype'], df_clean_test['Impact_Category'])
-    print(drilldown.to_string())
-else:
-    print("\n[3] 'product_subtype' column not found. Skipping drilldown matrix.")
-
-# Export the fully enriched dataset so you can show the exact trades in Excel
-output_file = 'ML_Enriched_Shadow_Run.xlsx'
-df_clean_test.to_excel(output_file, index=False)
-print("\n" + "="*70)
-print(f"Line-by-line comparison successfully exported to: {output_file}")
+	•	New composite-key, per-source calibrator: key = sub-type + rating region + tenor + credit rating + issuer rating + notional range, with a granularity selector and a sparsity fallback to product level.
+	•	Per-source thresholds (BVAL/RDAM/Reuters/EOD) by percentile or MAD, OR alerting across sources, wired into both calibration and backtesting.
+	•	Split the old generic per-check engine into default_calibrator.py (now the is_default fallback) so unregistered products still work; registry now selects the default via the is_default flag.
+	•	Extended the mock with Cash Bonds dimensions and per-source reference prices.
