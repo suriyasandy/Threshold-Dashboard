@@ -1,0 +1,37 @@
+Problem Statement
+
+	•	OMRC thresholds are calibrated manually per product, building multi-dimensional tables by hand — slow, hard to reproduce, and difficult to audit.
+	•	Thresholds are static and reviewed only periodically, so they drift from changing market conditions.
+	•	Current thresholds raise a high alert volume, with many closed at L1 as false positives — large manual ops effort wasted on non-issues.
+	•	No consistent way to measure whether a threshold change cuts false positives without missing genuine off-market trades.
+	•	Trade (BRV) and exception (EPE) data sit in separate sources, needing manual extraction and joining before analysis.
+	•	QA sampling is manual and random, so it isn’t statistically representative across products, ratings, or tenors.
+	•	Audit evidence for L1 closures is manual and inconsistent, making it hard to prove the control operated correctly.
+
+Business Benefit
+
+	•	Eliminates manual data wrangling — BRV and EPE pulled into one place with shared filters.
+	•	Automates threshold calibration per product using the firm’s own methodology, replacing hand-built tables.
+	•	Quantifies the false-positive problem — labels L1-closed as false positives and L2-confirmed as genuine, making alert noise visible.
+	•	Shows effort saved — backtesting reports false positives removed, genuine exceptions retained, and estimated ops hours saved.
+	•	Makes changes safe and defensible — measures FP reduction and TP retention together for auditable sign-off before go-live.
+	•	Reproducible and governable — same inputs give same outputs, with a built-in trade-to-exception join-health check.
+	•	Scales across products — one framework all desks use; new products are an incremental add.
+	•	Built-in QA sampling tool — replaces manual random sampling with stratified sampling, giving statistically representative coverage for re-OMRC review.
+	•	Automated audit evidence — each L1-closed exception auto-creates a Jira per ISIN capturing the trades closed by the approach, providing a consistent audit trail.
+	•	Audit-evidence-driven QA — the generated Jira records feed directly into QA sampling, closing the loop between closure, evidence, and assurance.
+
+Future State (AI & GenAI)
+
+	•	Dynamic thresholds — auto-recalibrate on a rolling window, with backtesting as the automated sign-off gate.
+	•	Anomaly scoring — score each trade against its true peer group rather than one hard threshold.
+	•	False-positive driver analytics — cluster L1-closed alerts to reveal why they fire and fix the source.
+	•	Predictive FP/TP scoring — train on L1/L2 labels to pre-score each alert’s probability of being genuine.
+	•	Alert triage / ranking — rank the daily queue by genuineness to cut investigation time, not just count.
+	•	Explainability — surface the top drivers behind each score for analyst trust and audit.
+	•	Pre-detection / early warning — flag trades drifting toward off-market before they breach a threshold.
+	•	Unsupervised discovery — catch novel off-market patterns the rule-based checks were never designed for.
+	•	Cross-source corroboration — reconcile BVAL/RDAM/Reuters/EOD disagreement, weighting sources by reliability.
+	•	GenAI-enriched QA reporting — automatically enrich sampled audit evidence and generate a review-ready QA report.
+	•	Credible foundation — unified data, L1/L2 labels, and a backtesting harness are already in place to train and govern models.
+	•	Data-quality prerequisite — standardising the L1/L2 resolution labels is the practical first step before heavy AI investment.
