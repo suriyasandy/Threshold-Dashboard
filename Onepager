@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OMRC Data &amp; Analytics Hub — One Pager</title>
+<style>
+  :root{
+    --red:#DB0011;          /* HSBC red */
+    --red-dark:#A50D17;
+    --ink:#16191D;
+    --ink-soft:#4A5158;
+    --line:#D9DDE1;
+    --panel:#F5F6F7;
+    --pass:#0B7A3E;
+    --pass-bg:#E9F4EE;
+    --amber:#8A5A00;
+    --amber-bg:#FCF3E1;
+    --blue:#0E5A8A;
+    --blue-bg:#E8F1F7;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{font-size:15px}
+  body{
+    font-family:"Segoe UI",Arial,Helvetica,sans-serif;
+    color:var(--ink);background:#fff;
+    padding:30px 40px 40px;
+    max-width:1260px;margin:0 auto;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact;
+  }
+
+  /* ---------- header ---------- */
+  .masthead{border-bottom:3px solid var(--red);padding-bottom:14px;margin-bottom:16px;
+    display:flex;justify-content:space-between;gap:24px;align-items:flex-end}
+  .masthead .eyebrow{
+    font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--red);font-weight:700;margin-bottom:6px;
+  }
+  .masthead h1{font-size:1.75rem;font-weight:700;letter-spacing:-.015em;line-height:1.1}
+  .masthead .thesis{
+    font-size:.98rem;color:var(--ink-soft);margin-top:8px;max-width:820px;line-height:1.45;
+  }
+  .masthead .thesis strong{color:var(--ink)}
+  .masthead .stamp{
+    text-align:right;font-size:.72rem;color:var(--ink-soft);line-height:1.6;white-space:nowrap;
+  }
+  .masthead .stamp b{color:var(--ink)}
+
+  /* ---------- platform strip ---------- */
+  .flow{
+    display:flex;align-items:stretch;gap:0;border:1px solid var(--line);
+    margin-bottom:16px;background:var(--panel);
+  }
+  .flow .step{
+    flex:1;padding:8px 12px;font-size:.76rem;line-height:1.35;position:relative;
+  }
+  .flow .step b{display:block;font-size:.78rem;color:var(--ink)}
+  .flow .step span{color:var(--ink-soft)}
+  .flow .step + .step{border-left:1px solid var(--line)}
+  .flow .step::after{
+    content:"›";position:absolute;right:-5px;top:50%;transform:translateY(-54%);
+    color:var(--red);font-weight:700;font-size:1rem;z-index:1;
+  }
+  .flow .step:last-child::after{content:""}
+
+  /* ---------- effort ledger (signature) ---------- */
+  .ledger{
+    border:1px solid var(--line);border-left:4px solid var(--red);
+    margin-bottom:20px;background:#fff;
+  }
+  .ledger-head{
+    display:flex;justify-content:space-between;align-items:baseline;gap:16px;
+    padding:11px 16px 9px;border-bottom:1px solid var(--line);
+  }
+  .ledger-head h2{font-size:.95rem;font-weight:700}
+  .ledger-head .note{font-size:.71rem;color:var(--ink-soft);text-align:right}
+  table.ledger-t{width:100%;border-collapse:collapse;font-size:.85rem}
+  .ledger-t th{
+    text-align:left;font-size:.67rem;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-soft);padding:8px 16px;border-bottom:1px solid var(--line);font-weight:700;
+  }
+  .ledger-t th.num,.ledger-t td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .ledger-t td{padding:9px 16px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .ledger-t tbody tr:nth-child(even) td{background:#FBFBFC}
+  .ledger-t tr:last-child td{border-bottom:none}
+  .ledger-t .mod{font-weight:600;white-space:nowrap}
+  .ledger-t .basis{color:var(--ink-soft);font-size:.76rem}
+  .arrow{color:var(--red);font-weight:700;padding:0 2px}
+  .bar{position:relative;height:10px;background:var(--panel);border-radius:5px;overflow:hidden;min-width:120px}
+  .bar span{position:absolute;left:0;top:0;bottom:0;background:var(--pass);border-radius:5px}
+  .saved{color:var(--pass);font-weight:700;white-space:nowrap}
+  .ledger-t tfoot td{background:var(--panel);font-weight:700;border-top:2px solid var(--ink)}
+  .ledger-t tfoot .saved{font-size:.95rem}
+  .accuracy{font-size:.74rem;color:var(--blue);font-weight:600;white-space:nowrap}
+
+  /* ---------- module grid ---------- */
+  .modules{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .module{border:1px solid var(--line);display:flex;flex-direction:column;background:#fff}
+  .module-head{
+    background:var(--ink);color:#fff;padding:10px 14px;
+    display:flex;justify-content:space-between;align-items:center;gap:8px;
+  }
+  .module-head h3{font-size:.92rem;font-weight:700;line-height:1.25}
+  .module-head h3 small{font-weight:400;opacity:.7;font-size:.78rem}
+  .module-head .num{
+    font-size:.68rem;color:#fff;background:var(--red);border-radius:3px;
+    padding:2px 7px;font-weight:700;letter-spacing:.06em;white-space:nowrap;
+  }
+  .module-effort{
+    background:var(--panel);border-bottom:1px solid var(--line);
+    padding:7px 14px;font-size:.75rem;color:var(--ink-soft);
+    display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;
+  }
+  .module-effort b{color:var(--ink)}
+  .status{
+    font-size:.68rem;font-weight:700;border-radius:3px;padding:2px 7px;white-space:nowrap;
+  }
+  .status.built{background:var(--pass-bg);color:var(--pass)}
+  .status.pilot{background:var(--blue-bg);color:var(--blue)}
+  .status.planned{background:var(--amber-bg);color:var(--amber)}
+  .block{padding:10px 14px 3px}
+  .block:last-child{padding-bottom:11px}
+  .block + .block{border-top:1px dashed var(--line)}
+  .block h4{
+    font-size:.65rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700;
+    margin-bottom:6px;display:flex;align-items:center;gap:6px;
+  }
+  .block h4::before{content:"";width:8px;height:8px;border-radius:2px;flex:none}
+  .block.problem h4{color:var(--red-dark)} .block.problem h4::before{background:var(--red)}
+  .block.solution h4{color:var(--ink)} .block.solution h4::before{background:var(--ink)}
+  .block.benefit h4{color:var(--pass)} .block.benefit h4::before{background:var(--pass)}
+  .block.future h4{color:var(--amber)} .block.future h4::before{background:var(--amber)}
+  .block ul{list-style:none}
+  .block li{
+    font-size:.79rem;line-height:1.42;padding-left:12px;position:relative;margin-bottom:5px;color:var(--ink);
+  }
+  .block li::before{content:"–";position:absolute;left:0;color:var(--ink-soft)}
+  .block li b{font-weight:600}
+  .metric{
+    background:var(--pass-bg);color:var(--pass);font-weight:700;font-size:.74rem;
+    border-radius:3px;padding:1px 6px;white-space:nowrap;
+  }
+
+  /* ---------- footer ---------- */
+  .foot{
+    margin-top:18px;padding-top:11px;border-top:1px solid var(--line);
+    display:flex;justify-content:space-between;gap:20px;
+    font-size:.71rem;color:var(--ink-soft);
+  }
+  .foot .assure b{color:var(--ink)}
+
+  @media (max-width:1000px){
+    .modules{grid-template-columns:1fr}
+    .masthead{flex-direction:column;align-items:flex-start}
+    .masthead .stamp{text-align:left}
+    .flow{flex-wrap:wrap}
+    .flow .step{min-width:45%}
+    body{padding:22px 18px}
+  }
+  @media print{
+    body{padding:0;max-width:none;font-size:13px}
+    .module{break-inside:avoid}
+    .ledger{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div>
+    <div class="eyebrow">CIB Middle Office &middot; OMRC &middot; Off-Market Rate Control</div>
+    <h1>OMRC Data &amp; Analytics Hub</h1>
+    <p class="thesis">One platform for exception analysis, QA sampling, and threshold calibration —
+    <strong>cutting ~388 hours of manual ops effort a year to ~109</strong> while improving accuracy,
+    evidence quality, and audit defensibility.</p>
+  </div>
+  <div class="stamp">
+    <b>One Pager — for management review</b><br>
+    Status: working prototype (all 3 modules)<br>
+    Scope: GFX Cash &middot; GDM Cash Bonds &middot; extensible
+  </div>
+</header>
+
+<!-- ============ PLATFORM FLOW ============ -->
+<div class="flow">
+  <div class="step"><b>Fetch once</b><span>BRV trades + EPE exceptions, shared filters, cached datasets</span></div>
+  <div class="step"><b>Analyse</b><span>exception themes, market-data enrichment (Reuters/LSEG)</span></div>
+  <div class="step"><b>Calibrate &amp; backtest</b><span>per-product thresholds, FP-vs-TP release gate</span></div>
+  <div class="step"><b>Sample &amp; evidence</b><span>stratified QA, Jira per ISIN/case, re-OMRC</span></div>
+  <div class="step"><b>Govern</b><span>reproducible runs, join-health checks, human sign-off</span></div>
+</div>
+
+<!-- ============ EFFORT LEDGER ============ -->
+<section class="ledger">
+  <div class="ledger-head">
+    <h2>Ops effort — current vs. with the Hub</h2>
+    <span class="note">Current figures confirmed by Ops &middot; targets are engineering estimates, to be validated in pilot</span>
+  </div>
+  <table class="ledger-t">
+    <thead>
+      <tr>
+        <th>Module</th><th>Current manual effort</th>
+        <th class="num">Hrs / yr</th><th class="num">With Hub</th>
+        <th>Reduction</th><th class="num">Saved</th><th>Accuracy gain</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="mod">1 &middot; Exception Analysis</td>
+        <td class="basis">1 hr every working day — extract, join, enrich, investigate</td>
+        <td class="num">~252</td><td class="num">~75</td>
+        <td><div class="bar"><span style="width:70%"></span></div></td>
+        <td class="num saved">~177 hr (&asymp;70%)</td>
+        <td class="accuracy">Consistent evidence, fewer FPs</td>
+      </tr>
+      <tr>
+        <td class="mod">2 &middot; QA Sampling</td>
+        <td class="basis">8 hr per month — manual random sampling &amp; evidence assembly</td>
+        <td class="num">96</td><td class="num">~24</td>
+        <td><div class="bar"><span style="width:75%"></span></div></td>
+        <td class="num saved">~72 hr (&asymp;75%)</td>
+        <td class="accuracy">Statistical coverage vs random</td>
+      </tr>
+      <tr>
+        <td class="mod">3 &middot; Threshold &amp; Backtesting</td>
+        <td class="basis">40 hr per year, plus ad-hoc recalibration cycles</td>
+        <td class="num">40+</td><td class="num">~10</td>
+        <td><div class="bar"><span style="width:75%"></span></div></td>
+        <td class="num saved">~30 hr + ad-hoc absorbed</td>
+        <td class="accuracy">Quantified FP&darr; / TP-retained gate</td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr>
+        <td class="mod">Total</td>
+        <td class="basis">&asymp;48 working days of manual effort per year</td>
+        <td class="num">~388</td><td class="num">~109</td>
+        <td><div class="bar"><span style="width:72%"></span></div></td>
+        <td class="num saved">~279 hr / yr (&asymp;72%)</td>
+        <td class="accuracy">&asymp;35 days back to higher-value work</td>
+      </tr>
+    </tfoot>
+  </table>
+</section>
+
+<!-- ============ MODULES ============ -->
+<div class="modules">
+
+  <!-- Module 1 -->
+  <section class="module">
+    <div class="module-head">
+      <h3>Exception Analysis <small>— market-data enriched</small></h3>
+      <span class="num">MODULE 1</span>
+    </div>
+    <div class="module-effort">
+      <span><b>1 hr/day (~252 hr/yr)</b> <span class="arrow">&rarr;</span> <b>~75 hr/yr</b> <span class="metric">&asymp;70% less</span></span>
+      <span class="status built">BUILT — in use</span>
+    </div>
+
+    <div class="block problem">
+      <h4>Problem</h4>
+      <ul>
+        <li>Trade (BRV) and exception (EPE) data sit in separate sources — manual extraction and joining before any analysis.</li>
+        <li>High alert volume; most closed at L1 as false positives, consuming daily ops effort.</li>
+        <li>Market-data evidence for L1 closures is inconsistent; per-trade LSEG fetches don't scale to large populations.</li>
+      </ul>
+    </div>
+    <div class="block solution">
+      <h4>Solution</h4>
+      <ul>
+        <li>Unified BRV + EPE layer with shared filters and concentration views (ISIN / CCY pair).</li>
+        <li>Controlled market-data enrichment: <b>cache-only mode</b> for fast whole-dataset validation; <b>scoped LSEG fetch</b> only for selected CCY/date clusters.</li>
+        <li>Codified GFX logic (mid, outright rate, quote-window matching, explicit RIC mappings) plus business rules to isolate exception themes.</li>
+      </ul>
+    </div>
+    <div class="block benefit">
+      <h4>Business benefit</h4>
+      <ul>
+        <li>Daily extract-join-investigate cycle collapses to a filtered view — the 1 hr/day becomes minutes.</li>
+        <li>Deterministic, standardised evidence improves closure consistency and auditability.</li>
+        <li>Analyst effort targets hotspots; LSEG cost contained to where evidence is needed.</li>
+      </ul>
+    </div>
+    <div class="block future">
+      <h4>Future — AI</h4>
+      <ul>
+        <li>Predictive FP/TP scoring from L1/L2 labels to rank alerts by genuineness.</li>
+        <li>Auto Jira per L1 closure for a consistent audit trail; RIC/source reliability learning.</li>
+        <li>Unsupervised discovery of novel off-market patterns beyond fixed rules.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- Module 2 -->
+  <section class="module">
+    <div class="module-head">
+      <h3>QA Sampling <small>— assurance</small></h3>
+      <span class="num">MODULE 2</span>
+    </div>
+    <div class="module-effort">
+      <span><b>8 hr/month (96 hr/yr)</b> <span class="arrow">&rarr;</span> <b>~24 hr/yr</b> <span class="metric">&asymp;75% less</span></span>
+      <span class="status pilot">PROTOTYPE</span>
+    </div>
+
+    <div class="block problem">
+      <h4>Problem</h4>
+      <ul>
+        <li>QA sampling is manual and random — coverage isn't statistically representative across products, ratings, or tenors.</li>
+        <li>Audit evidence for L1 closures is assembled by hand and inconsistent.</li>
+        <li>No closed loop between what was closed, the evidence supporting it, and what QA reviewed.</li>
+      </ul>
+    </div>
+    <div class="block solution">
+      <h4>Solution</h4>
+      <ul>
+        <li><b>Stratified sampling</b> across key dimensions (product, rating, tenor, region, notional band) replaces random picks; re-OMRC runs on the sample.</li>
+        <li>Evidence-first workflow: each L1 closure generates a <b>Jira per ISIN/case</b> capturing the trades closed — QA samples directly from that evidence store.</li>
+        <li>Repeatable runs with saved parameters (seeded) for audit reproducibility.</li>
+      </ul>
+    </div>
+    <div class="block benefit">
+      <h4>Business benefit</h4>
+      <ul>
+        <li>Monthly sampling effort drops from a day to under an hour, with <b>higher accuracy</b>: defensible statistical coverage instead of judgement picks.</li>
+        <li>Standardised evidence artefacts cut rework and strengthen confidence in L1 decisions.</li>
+        <li>Closed loop: closed &rarr; evidenced &rarr; sampled &rarr; reviewed &rarr; findings feed calibration.</li>
+      </ul>
+    </div>
+    <div class="block future">
+      <h4>Future — AI</h4>
+      <ul>
+        <li>Adaptive sampling — weights rise automatically for emerging risk signals or changed thresholds.</li>
+        <li><b>GenAI-enriched QA packs</b>: review-ready narratives and evidence summaries generated from case data.</li>
+        <li>Explainability-driven QA highlighting top drivers behind each closure decision.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- Module 3 -->
+  <section class="module">
+    <div class="module-head">
+      <h3>Threshold Analysis &amp; Backtesting <small>— calibration</small></h3>
+      <span class="num">MODULE 3</span>
+    </div>
+    <div class="module-effort">
+      <span><b>40 hr/yr + ad-hoc</b> <span class="arrow">&rarr;</span> <b>~10 hr/yr</b> <span class="metric">&asymp;75% less</span></span>
+      <span class="status built">BUILT — in validation</span>
+    </div>
+
+    <div class="block problem">
+      <h4>Problem</h4>
+      <ul>
+        <li>Thresholds calibrated manually per product — hand-built multi-dimensional tables, slow and hard to audit.</li>
+        <li>Static thresholds drift from changing market conditions between reviews.</li>
+        <li>No consistent mechanism to prove FP reduction while retaining genuine off-market detection.</li>
+      </ul>
+    </div>
+    <div class="block solution">
+      <h4>Solution</h4>
+      <ul>
+        <li>Automated per-product calibration on the internal methodology (GFX vol-banding; GDM Cash Bonds composite key, <b>Reuters/LSEG as primary source today</b>).</li>
+        <li>Backtesting harness compares current vs proposed thresholds on history with measurable outcomes.</li>
+        <li>Release gate on two metrics together: <b>false positives removed</b> (L1-closed) and <b>genuine exceptions retained</b> (L2-confirmed) — plus ops-hours-saved.</li>
+      </ul>
+    </div>
+    <div class="block benefit">
+      <h4>Business benefit</h4>
+      <ul>
+        <li>Annual calibration shrinks to a parameter-driven re-run; ad-hoc requests become same-day.</li>
+        <li>Threshold changes are safe and defensible — quantified backtest evidence before go-live.</li>
+        <li>One framework reused across products; new products are incremental additions.</li>
+      </ul>
+    </div>
+    <div class="block future">
+      <h4>Future — AI</h4>
+      <ul>
+        <li>Dynamic thresholds recalibrated on a rolling window with an automated backtest gate.</li>
+        <li>Anomaly scoring vs true peer groups; early warning flags drift toward off-market before breach.</li>
+        <li>Cross-source corroboration and reliability weighting when BVAL/RDAM/EOD feeds arrive.</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<footer class="foot">
+  <div class="assure"><b>Governance:</b> same inputs give the same outputs &middot; built-in trade&harr;exception join-health check &middot; human sign-off retained at every promotion point &middot; L1/L2 resolution data quality is the key prerequisite for the AI roadmap.</div>
+  <div>OMRC Data &amp; Analytics Hub &middot; CIB Middle Office &middot; Draft for discussion</div>
+</footer>
+
+</body>
+</html>
