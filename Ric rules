@@ -1,0 +1,16 @@
+
+
+	•	Default to ISO-alphabetical order, but validate against the actual existing RIC — Reuters does not mirror both directions
+	•	e.g. GBPCHF= exists; CHFGBP= does not
+
+Contributor Suffix Rules:
+
+	•	= → traded/composite rate (use first, highest quality)
+	•	=R → Refinitiv-calculated cross rate (fallback only, when no direct traded RIC exists)
+	•	=<CODE> (e.g. =TDS, =RBS) → specific bank/contributor page, use only when trade was priced against that named source
+
+Validation Guardrails:
+
+	•	Never auto-invert a pair if the constructed RIC doesn’t resolve — flag for manual check instead
+	•	If only the inverted RIC exists, invert the rate (1/rate) too, not just the currency order
+	•	Maintain a static, validated lookup table of confirmed RICs per pair rather than trusting the rank algorithm alone in production
