@@ -1,0 +1,20 @@
+import threading, time, webbrowser, uvicorn
+
+# Force-include dynamically discovered plugin modules for PyInstaller
+import app.modules.data_fetch
+import app.modules.exception_analysis
+import app.modules.audit_sampling
+import app.modules.threshold_analysis
+# add one line per folder under app/modules/
+
+from app.main import app as fastapi_app
+
+def run_server():
+    uvicorn.run(fastapi_app, host="127.0.0.1", port=8000, log_level="error")
+
+if __name__ == "__main__":
+    t = threading.Thread(target=run_server, daemon=True)
+    t.start()
+    time.sleep(1.5)
+    webbrowser.open("http://127.0.0.1:8000")
+    t.join()
